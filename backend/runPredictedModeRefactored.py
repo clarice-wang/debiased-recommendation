@@ -10,7 +10,7 @@ import pandas as pd
 
 import sklearn
 from sklearn.preprocessing import LabelEncoder
-
+import time
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -31,18 +31,16 @@ from sklearn.decomposition import PCA
 
 import pickle
 
-
 #%% 
-# Load input user-like pair to test all the models
-testUserLikePair = pd.read_csv("input_output/testUserLikePair.csv")
 
-
-
-#%%
-# encoding like as rating 1 and no-like as no rating
-likes=np.ones((testUserLikePair.shape[0]))
-likes = pd.DataFrame(likes,columns=['likes'])
-testUserLikePair = pd.concat([testUserLikePair,likes],axis=1) 
+def initialize_test():
+    # Load input user-like pair to test all the models
+    testUserLikePair = pd.read_csv("input_output/testUserLikePair.csv")
+    # encoding like as rating 1 and no-like as no rating
+    likes=np.ones((testUserLikePair.shape[0]))
+    likes = pd.DataFrame(likes,columns=['likes'])
+    testUserLikePair = pd.concat([testUserLikePair,likes],axis=1) 
+    return testUserLikePair
 
 #The function below ensures that we seed all random generators with the same value to get reproducible results
 def set_random_seed(state=1):
@@ -50,22 +48,26 @@ def set_random_seed(state=1):
     for set_state in gens:
         set_state(state)
 
-RANDOM_STATE = 1
-set_random_seed(RANDOM_STATE)
+def initialize():
+    RANDOM_STATE = 1
+    set_random_seed(RANDOM_STATE)
 
-#%% load all the required data sets to train RecSys models
-# load user-like pairs
+    #%% load all the required data sets to train RecSys models
+    # load user-like pairs
+    print("Loading data ...")
+    male_userLikePair = pd.read_csv("processedData/male_userLikePair.csv")
+    female_userLikePair = pd.read_csv("processedData/female_userLikePair.csv")
+    all_userLikePair = pd.read_csv("processedData/all_userLikePair.csv")
 
-male_userLikePair = pd.read_csv("processedData/male_userLikePair.csv")
-female_userLikePair = pd.read_csv("processedData/female_userLikePair.csv")
-all_userLikePair = pd.read_csv("processedData/all_userLikePair.csv")
+    male_userID = np.int64(np.loadtxt('processedData/male_userID.txt'))
+    female_userID = np.int64(np.loadtxt('processedData/female_userID.txt'))
+    all_userID = np.int64(np.loadtxt('processedData/all_userID.txt'))
 
-male_userID = np.int64(np.loadtxt('processedData/male_userID.txt'))
-female_userID = np.int64(np.loadtxt('processedData/female_userID.txt'))
-all_userID = np.int64(np.loadtxt('processedData/all_userID.txt'))
+    userDemog = pd.read_csv("processedData/userDemog.csv")
+    userConcentrationsName = pd.read_csv("processedData/userConcentrationsName.csv")
+    print("Loading data ... done")
 
-userDemog = pd.read_csv("processedData/userDemog.csv")
-userConcentrationsName = pd.read_csv("processedData/userConcentrationsName.csv")
+    return (male_userLikePair, female_userLikePair, all_userLikePair, male_userID, female_userID, all_userID, userDemog, userConcentrationsName)
 
 #testUser = (all_userLikePair.loc[all_userLikePair['like_id'].isin(female_userLikePair['like_id'])]).reset_index(drop=True)
 #testUser = (testUser.loc[testUser['like_id'].isin(male_userLikePair['like_id'])]).reset_index(drop=True)
@@ -225,129 +227,74 @@ embed_size = 100
 num_hidden = 10
 
 #%%
-# Male recommender systems
-# encoding data
 print("Evaluating male recommender system")
-maleUserLike_train = encode_data(male_userLikePair)
-maleUserLike_train = encode_user(maleUserLike_train)
 
-testMale = encode_data(testUserLikePair,male_userLikePair)
-testMale = encode_user(testMale)
+def initialize_model_embed(userLikePair, model_file):
+    # Male recommender systems
+    # encoding data
+    UserLike_train = encode_data(userLikePair)
+    UserLike_train = encode_user(UserLike_train)
+    num_users = len(UserLike_train.userID.unique())
+    num_likes = len(UserLike_train.like_id.unique())
 
-num_usersMale = len(maleUserLike_train.userID.unique())
-num_likesMale = len(maleUserLike_train.like_id.unique())
+    model_Users = collabFilterNet(num_users, num_likes, embed_size, num_hidden)
+    model_Users.load_state_dict(torch.load(model_file))
+    UsersEmbed = (model_Users.user_emb.weight).detach().numpy()
+    # normalizing embedding
+    UsersEmbed = UsersEmbed / np.linalg.norm(UsersEmbed,axis=1,keepdims=1)
+    
+    return (model_Users, UsersEmbed)
 
-model_maleUsers = collabFilterNet(num_usersMale, num_likesMale, embed_size, num_hidden)
+def eval_recommender(testUserLikePair, userLikePair, model_Users, UsersEmbed, userID, userConcentrationsName, model_file, output_file):
+    test = encode_data(testUserLikePair, userLikePair)
+    test = encode_user(test)
 
+    start = time.time()
+    model_Users.user_emb = nn.Embedding(len(test.userID.unique()), embed_size)
+    print("embedding time: ", time.time() - start)
 
-model_maleUsers.load_state_dict(torch.load("trainedModel/model_maleUsers"))
-maleUsersEmbed = (model_maleUsers.user_emb.weight).detach().numpy()
+    start = time.time()
+    train_epocs(model_Users,df_train=test, epochs=25, lr=0.001, wd=1e-6, unsqueeze=True)
+    print("train_epocs time: ", time.time() - start)
 
-model_maleUsers.user_emb = nn.Embedding(len(testMale.userID.unique()), embed_size)
-
-train_epocs(model_maleUsers,df_train=testMale, epochs=25, lr=0.001, wd=1e-6, unsqueeze=True)
-testmaleEmbed = (model_maleUsers.user_emb.weight).detach().numpy()
-
-# normalizing embedding
-maleUsersEmbed = maleUsersEmbed / np.linalg.norm(maleUsersEmbed,axis=1,keepdims=1)
-testmaleEmbed = testmaleEmbed / np.linalg.norm(testmaleEmbed,axis=1,keepdims=1)
-
-# nearest neighbored based recommendations
-maleRecSys_nearest = nearest_recommend(testmaleEmbed,maleUsersEmbed,male_userID,userConcentrationsName) 
-maleRecSys_nearest = pd.DataFrame(np.asarray(maleRecSys_nearest))
-maleRecSys_nearest.to_csv('input_output/maleRecSys_nearest.csv')
-
-# logistic regression based recommendations (drop bias term)
-filename = 'trainedModel/logisticRegressionMale.sav'
-clf_male = pickle.load(open(filename, 'rb'))
-
-maleRecSys_LR = logisticRegression_recommend(testmaleEmbed,maleUsersEmbed,male_userID,userConcentrationsName,clf_male)
-maleRecSys_LR = pd.DataFrame(np.asarray(maleRecSys_LR))
-maleRecSys_LR.to_csv('input_output/maleRecSys_LR.csv')
-
-
-#%%
-# Female recommender systems
-# encoding data
-print("Evaluating female recommender system")
-femaleUserLike_train = encode_data(female_userLikePair)
-femaleUserLike_train = encode_user(femaleUserLike_train)
-
-testFemale = encode_data(testUserLikePair,female_userLikePair)
-testFemale = encode_user(testFemale)
-
-num_usersFemale = len(femaleUserLike_train.userID.unique())
-num_likesFemale = len(femaleUserLike_train.like_id.unique())
-
-model_femaleUsers = collabFilterNet(num_usersFemale, num_likesFemale, embed_size, num_hidden)
-
-
-model_femaleUsers.load_state_dict(torch.load("trainedModel/model_femaleUsers"))
-femaleUsersEmbed = (model_femaleUsers.user_emb.weight).detach().numpy()
-
-model_femaleUsers.user_emb = nn.Embedding(len(testFemale.userID.unique()), embed_size)
-
-train_epocs(model_femaleUsers,df_train=testFemale, epochs=25, lr=0.001, wd=1e-6, unsqueeze=True)
-testfemaleEmbed = (model_femaleUsers.user_emb.weight).detach().numpy()
-
-# normalizing embedding
-femaleUsersEmbed = femaleUsersEmbed / np.linalg.norm(femaleUsersEmbed,axis=1,keepdims=1)
-testfemaleEmbed = testfemaleEmbed / np.linalg.norm(testfemaleEmbed,axis=1,keepdims=1)
+    start = time.time()
+    testEmbed = (model_Users.user_emb.weight).detach().numpy()
+    # normalizing embedding
+    testEmbed = testEmbed / np.linalg.norm(testEmbed,axis=1,keepdims=1)
+    print("normalizing time: ", time.time() - start)
 
 # nearest neighbored based recommendations
-femaleRecSys_nearest = nearest_recommend(testfemaleEmbed,femaleUsersEmbed,female_userID,userConcentrationsName) 
-femaleRecSys_nearest = pd.DataFrame(np.asarray(femaleRecSys_nearest))
-femaleRecSys_nearest.to_csv('input_output/femaleRecSys_nearest.csv')
+# maleRecSys_nearest = nearest_recommend(testmaleEmbed,maleUsersEmbed,male_userID,userConcentrationsName) 
+# nmaleRecSys_nearest = pd.DataFrame(np.asarray(maleRecSys_nearest))
+# maleRecSys_nearest.to_csv('input_output/maleRecSys_nearest.csv')
 
 # logistic regression based recommendations (drop bias term)
-filename = 'trainedModel/logisticRegressionFemale.sav'
-clf_female = pickle.load(open(filename, 'rb'))
+    start = time.time()
+    Clf = pickle.load(open(model_file, 'rb'))
+    print("model loading time: ", time.time() - start)
 
-femaleRecSys_LR = logisticRegression_recommend(testfemaleEmbed,femaleUsersEmbed,female_userID,userConcentrationsName,clf_female)
-femaleRecSys_LR = pd.DataFrame(np.asarray(femaleRecSys_LR))
-femaleRecSys_LR.to_csv('input_output/femaleRecSys_LR.csv')
+    start = time.time()
+    RecSys_LR = logisticRegression_recommend(testEmbed,UsersEmbed,userID,userConcentrationsName,Clf)
+    RecSys_LR = pd.DataFrame(np.asarray(RecSys_LR))
+    RecSys_LR.to_csv(output_file)
+    print("regression time: ", time.time() - start)
 
-#%%
-# Typical recommender systems
-# encoding data
-print("Evaluating typical recommender system (male+female users without debiasing)")
-allUserLike_train = encode_data(all_userLikePair)
-allUserLike_train = encode_user(allUserLike_train)
+print("initializing ...")
+(male_userLikePair, female_userLikePair, all_userLikePair, male_userID, female_userID, all_userID, userDemog, userConcentrationsName) = initialize()
+(model_maleUsers, maleUsersEmbed) = initialize_model_embed(male_userLikePair, "trainedModel/model_maleUsers")
+(model_femaleUsers, femaleUsersEmbed) = initialize_model_embed(female_userLikePair, "trainedModel/model_femaleUsers")
+(model_allUsers, allUsersEmbed) = initialize_model_embed(all_userLikePair, "trainedModel/model_allUsers")
 
-testAll = encode_data(testUserLikePair,all_userLikePair)
-testAll = encode_user(testAll)
+print("starting test ...")
 
-num_usersAll = len(allUserLike_train.userID.unique())
-num_likesAll = len(allUserLike_train.like_id.unique())
+time1 = time.time()
 
-model_allUsers = collabFilterNet(num_usersAll, num_likesAll, embed_size, num_hidden)
+testUserLikePair = initialize_test()
+eval_recommender(testUserLikePair, male_userLikePair, model_maleUsers, maleUsersEmbed, male_userID, userConcentrationsName, "trainedModel/logisticRegressionMale.sav", "input_output/maleRecSys_LR.csv")
+eval_recommender(testUserLikePair, female_userLikePair, model_femaleUsers, femaleUsersEmbed, female_userID, userConcentrationsName, "trainedModel/logisticRegressionFemale.sav", "input_output/femaleRecSys_LR.csv")
+eval_recommender(testUserLikePair, all_userLikePair, model_allUsers, allUsersEmbed, all_userID, userConcentrationsName, "trainedModel/logisticRegressionTypical.sav", "input_output/typicalRecSys_LR.csv")
 
-
-model_allUsers.load_state_dict(torch.load("trainedModel/model_allUsers"))
-allUsersEmbed = (model_allUsers.user_emb.weight).detach().numpy()
-
-model_allUsers.user_emb = nn.Embedding(len(testAll.userID.unique()), embed_size)
-
-train_epocs(model_allUsers,df_train=testAll, epochs=25, lr=0.001, wd=1e-6, unsqueeze=True)
-testallEmbed = (model_allUsers.user_emb.weight).detach().numpy()
-
-# normalizing embedding
-allUsersEmbed = allUsersEmbed / np.linalg.norm(allUsersEmbed,axis=1,keepdims=1)
-testallEmbed = testallEmbed / np.linalg.norm(testallEmbed,axis=1,keepdims=1)
-
-# nearest neighbored based recommendations
-typicalRecSys_nearest = nearest_recommend(testallEmbed,allUsersEmbed,all_userID,userConcentrationsName) 
-typicalRecSys_nearest = pd.DataFrame(np.asarray(typicalRecSys_nearest))
-typicalRecSys_nearest.to_csv('input_output/typicalRecSys_nearest.csv')
-
-# logistic regression based recommendations (drop bias term)
-filename = 'trainedModel/logisticRegressionTypical.sav'
-clf_typical = pickle.load(open(filename, 'rb'))
-
-typicalRecSys_LR = logisticRegression_recommend(testallEmbed,allUsersEmbed,all_userID,userConcentrationsName,clf_typical)
-typicalRecSys_LR = pd.DataFrame(np.asarray(typicalRecSys_LR))
-typicalRecSys_LR.to_csv('input_output/typicalRecSys_LR.csv')
-
+time2 = time.time()
 
 #%%
 # Gender-neutral recommender systems
@@ -362,6 +309,9 @@ for i in range(len(allUsersEmbed)):
         genderEmbed[0] +=  allUsersEmbed[i] 
     else:
         genderEmbed[1] +=  allUsersEmbed[i] 
+
+testallEmbed = (model_allUsers.user_emb.weight).detach().numpy()
+testallEmbed = testallEmbed / np.linalg.norm(testallEmbed,axis=1,keepdims=1)
 
 genderEmbed = genderEmbed / np.linalg.norm(genderEmbed,axis=1,keepdims=1)
 vBias= genderEmbed[1]-genderEmbed[0]
@@ -378,9 +328,9 @@ for i in range(len(testallEmbed)):
     debiased_testEmbed[i] = testallEmbed[i] - (np.inner(testallEmbed[i].reshape(1,-1),vBias)[0][0])*vBias
 
 # nearest neighbored based recommendations
-debiasRecSys_nearest = nearest_recommend(debiased_testEmbed,debiased_userEmbed,all_userID,userConcentrationsName) 
-debiasRecSys_nearest = pd.DataFrame(np.asarray(debiasRecSys_nearest))
-debiasRecSys_nearest.to_csv('input_output/debiasRecSys_nearest.csv')
+# debiasRecSys_nearest = nearest_recommend(debiased_testEmbed,debiased_userEmbed,all_userID,userConcentrationsName) 
+# debiasRecSys_nearest = pd.DataFrame(np.asarray(debiasRecSys_nearest))
+# debiasRecSys_nearest.to_csv('input_output/debiasRecSys_nearest.csv')
 
 # logistic regression based recommendations (drop bias term)
 filename = 'trainedModel/logisticRegressionGenderNeutral.sav'
@@ -389,3 +339,10 @@ clf_neutral = pickle.load(open(filename, 'rb'))
 debiasRecSys_LR = logisticRegression_recommend(debiased_testEmbed,debiased_userEmbed,all_userID,userConcentrationsName,clf_neutral)
 debiasRecSys_LR = pd.DataFrame(np.asarray(debiasRecSys_LR))
 debiasRecSys_LR.to_csv('input_output/debiasRecSys_LR.csv')
+
+
+time3 = time.time()
+
+print("elapsed time for male/female/all LR models: ", time2-time1)
+print("elapsed time for debiased LR models: ", time3-time2)
+
