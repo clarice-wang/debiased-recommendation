@@ -16,9 +16,9 @@
   export default {
     name: "app",
     components: {
-      Survey
+      'survey' : Survey,
     },
-    data() {
+    data: function() {
       var json = {
         title: "Survey Example",
         showProgressBar: "top",
