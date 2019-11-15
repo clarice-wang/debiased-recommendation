@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Logs
 logs
 *.log
@@ -62,3 +63,8 @@ typings/
 
 # idea
 .idea/
+=======
+.idea/
+frontend/survey/dist/
+frontend/survey/node_modules/
+>>>>>>> 3d0e32f65feeac8b7fd5d73eb37f0ca3cc877401
