@@ -1,0 +1,36 @@
+{
+  "name": "emotion-ratings",
+  "title": "jQuery Emotion Ratings",
+  "description": "This plugin allows you to create ratings using emojis.",
+  "keywords": [
+    "jquery-plugins",
+    "rating",
+    "emoji",
+    "reaction",
+    "emotion"
+  ],
+  "version": "2.0.1",
+  "author": {
+    "name": "Yanci Nerio",
+    "url": "http://www.yancinerio.com/#/emotion-ratings"
+  },
+  "maintainers": [
+    {
+      "name": "Yanci Nerio",
+      "url": "http://www.yancinerio.com/#/emotion-ratings"
+    }
+  ],
+  "licenses": [
+    {
+      "type": "MIT",
+      "url": "http://www.opensource.org/licenses/mit-license.php"
+    }
+  ],
+  "bugs": "https://github.com/YanNerio/emotion-ratings/issues",
+  "homepage": "https://github.com/YanNerio/emotion-ratings",
+  "docs": "https://github.com/YanNerio/emotion-ratings#readme",
+  "download": "https://github.com/Yannerio/emotion-ratins/archive/master.zip",
+  "dependencies": {
+    "jquery": ">=1.9"
+  }
+}
